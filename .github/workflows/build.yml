@@ -12,9 +12,15 @@ jobs:
       - name: Repository checkout
         uses: actions/checkout@v4
 
-      - name: Project zip খোলো
+      - name: Project zip খোলো (ঠিক একটি zip থাকতে হবে)
         run: |
-          ZIP=$(ls *.zip | head -n 1)
+          COUNT=$(ls *.zip 2>/dev/null | wc -l)
+          if [ "$COUNT" -ne 1 ]; then
+            echo "❌ Repository-তে ঠিক ১টি zip থাকতে হবে, এখন আছে: $COUNT"
+            ls -la *.zip 2>/dev/null || true
+            exit 1
+          fi
+          ZIP=$(ls *.zip)
           echo "Zip ফাইল: $ZIP"
           unzip -o "$ZIP" -d .
 
@@ -26,13 +32,10 @@ jobs:
 
       - name: Android SDK platform ও build-tools নিশ্চিত করো
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
           SDKM=$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -n 1)
           if [ -n "$SDKM" ]; then
             yes | "$SDKM" --licenses > /dev/null 2>&1 || true
             "$SDKM" "platforms;android-35" "build-tools;35.0.0" || true
-          else
-            echo "sdkmanager পাওয়া যায়নি, runner-এর বিদ্যমান SDK ব্যবহার হবে"
           fi
           ls "$ANDROID_HOME/platforms" || true
 
@@ -42,7 +45,27 @@ jobs:
           gradle-version: 8.10.2
 
       - name: Debug APK বানাও
-        run: gradle assembleDebug --stacktrace
+        run: |
+          set -o pipefail
+          gradle assembleDebug --stacktrace 2>&1 | tee build.log
+
+      - name: ভুলের সারাংশ (ব্যর্থ হলে)
+        if: failure()
+        run: |
+          {
+            echo "## Build ব্যর্থ, ভুলের তালিকা"
+            echo '```'
+            grep -E "^e: |What went wrong|error:|Execution failed" -A2 build.log | head -n 150
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build log upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: ignore
 
       - name: APK upload
         uses: actions/upload-artifact@v4
