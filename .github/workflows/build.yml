@@ -1,0 +1,52 @@
+name: Android Debug Build
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repository checkout
+        uses: actions/checkout@v4
+
+      - name: Project zip খোলো
+        run: |
+          ZIP=$(ls *.zip | head -n 1)
+          echo "Zip ফাইল: $ZIP"
+          unzip -o "$ZIP" -d .
+
+      - name: JDK 17 সেটআপ
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Android SDK platform ও build-tools নিশ্চিত করো
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          SDKM=$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -n 1)
+          if [ -n "$SDKM" ]; then
+            yes | "$SDKM" --licenses > /dev/null 2>&1 || true
+            "$SDKM" "platforms;android-35" "build-tools;35.0.0" || true
+          else
+            echo "sdkmanager পাওয়া যায়নি, runner-এর বিদ্যমান SDK ব্যবহার হবে"
+          fi
+          ls "$ANDROID_HOME/platforms" || true
+
+      - name: Gradle 8.10.2 সেটআপ
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
+
+      - name: Debug APK বানাও
+        run: gradle assembleDebug --stacktrace
+
+      - name: APK upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
